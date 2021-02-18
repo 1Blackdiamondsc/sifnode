@@ -1,4 +1,4 @@
-const web3 = require("web3");
+const Web3 = require("web3");
 const abi = [
   {
     anonymous: false,
@@ -968,13 +968,55 @@ const abi = [
   },
 ];
 
-const contract = new web3.eth.Contract(abi, address);
+const web3 = new Web3("http://localhost:7545");
 
-contract
-  .getPastEvents("LogBurn", {
-    fromBlock: 0,
+/**
+ * Gets a list of transactionHashes found as _from keys within the given events within a given blockRange from the current block
+ * @param {*} address eth address to correlate transactions with
+ * @param {*} contract web3 contract
+ * @param {*} eventList event name list of events (must have a _from key)
+ * @param {*} blockRange number of blocks from the current block header to search
+ */
+async function getEventTxsInBlockrange(
+  address,
+  contract,
+  eventList,
+  blockRange
+) {
+  const latest = await web3.eth.getBlockNumber();
+  const fromBlock = Math.max(latest - blockRange, 0);
+  const allEvents = await contract.getPastEvents("allEvents", {
+    fromBlock,
     toBlock: "latest",
-  })
-  .then(events => {
-    console.log("LogBurn events:", events);
   });
+
+  // unfortunately because _from is not an indexed event we have to manually filter
+  // TODO: ask peggy team to index the _from field
+  // tsx to return
+  const txs = [];
+
+  // iterate over txs
+  for (let event of allEvents) {
+    const isEventWeCareAbout = eventList.includes(event.event);
+
+    const matchesInputAddress =
+      event?.returnValues?._from?.toLowerCase() === address.toLowerCase();
+
+    if (isEventWeCareAbout && matchesInputAddress && event.transactionHash) {
+      txs.push(event.transactionHash);
+    }
+  }
+  return txs;
+}
+
+const address = "0xC5fdf4076b8F3A5357c5E395ab970B5B54098Fef";
+const contract = new web3.eth.Contract(
+  abi,
+  "0x30753E4A8aad7F8597332E813735Def5dD395028"
+);
+const eventList = ["LogLock", "LogBurn"];
+const blockRange = 50;
+
+getEventTxsInBlockrange(address, contract, eventList, blockRange).then(txs =>
+  console.log(txs)
+);

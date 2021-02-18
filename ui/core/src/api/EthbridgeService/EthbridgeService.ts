@@ -7,7 +7,7 @@ import { createPegTxEventEmitter } from "./PegTxEventEmitter";
 import { confirmTx } from "./utils/confirmTx";
 import { SifUnSignedClient } from "../utils/SifClient";
 import { parseTxFailure } from "./parseTxFailure";
-
+import { Contract } from "web3-eth-contract";
 // TODO: Do we break this service out to ethbridge and cosmos?
 
 export type EthbridgeServiceContext = {
@@ -39,6 +39,45 @@ export default function createEthbridgeService({
     return _web3;
   }
 
+  /**
+   * Gets a list of transactionHashes found as _from keys within the given events within a given blockRange from the current block
+   * @param {*} address eth address to correlate transactions with
+   * @param {*} contract web3 contract
+   * @param {*} eventList event name list of events (must have a _from key)
+   * @param {*} blockRange number of blocks from the current block header to search
+   */
+  async function getEventTxsInBlockrange(
+    address: string,
+    contract: Contract,
+    eventList: string[],
+    blockRange: number
+  ) {
+    const web3 = await ensureWeb3();
+    const latest = await web3.eth.getBlockNumber();
+    const fromBlock = Math.max(latest - blockRange, 0);
+    const allEvents = await contract.getPastEvents("allEvents", {
+      fromBlock,
+      toBlock: "latest",
+    });
+
+    // unfortunately because _from is not an indexed event we have to manually filter
+    // TODO: ask peggy team to index the _from field
+    // tsx to return
+    const txs = [];
+
+    // iterate over txs
+    for (let event of allEvents) {
+      const isEventWeCareAbout = eventList.includes(event.event);
+
+      const matchesInputAddress =
+        event?.returnValues?._from?.toLowerCase() === address.toLowerCase();
+
+      if (isEventWeCareAbout && matchesInputAddress && event.transactionHash) {
+        txs.push(event.transactionHash);
+      }
+    }
+    return txs;
+  }
   return {
     async approveBridgeBankSpend(account: string, amount: AssetAmount) {
       // This will popup an approval request in metamask
@@ -120,7 +159,7 @@ export default function createEthbridgeService({
         });
       }
 
-      (async function () {
+      (async function() {
         const web3 = await ensureWeb3();
         const cosmosRecipient = Web3.utils.utf8ToHex(sifRecipient);
 
@@ -177,7 +216,7 @@ export default function createEthbridgeService({
             },
           });
         });
-      })().catch((err) => {
+      })().catch(err => {
         handleError(err);
       });
 
@@ -216,6 +255,21 @@ export default function createEthbridgeService({
       return lockReceipt;
     },
 
+    //
+    async fetchUnconfirmedLockBurnTxs(address: string, blockRange: number) {
+      const web3 = await ensureWeb3();
+      const bridgeBankContract = await getBridgeBankContract(
+        web3,
+        bridgebankContractAddress
+      );
+      const txs = await getEventTxsInBlockrange(
+        address,
+        bridgeBankContract,
+        ["LogBurn", "LogLock"],
+        blockRange
+      );
+    },
+
     burnToSifchain(
       sifRecipient: string,
       assetAmount: AssetAmount,
@@ -232,7 +286,7 @@ export default function createEthbridgeService({
         });
       }
 
-      (async function () {
+      (async function() {
         const web3 = await ensureWeb3();
         const cosmosRecipient = Web3.utils.utf8ToHex(sifRecipient);
 
@@ -286,7 +340,7 @@ export default function createEthbridgeService({
             },
           });
         });
-      })().catch((err) => {
+      })().catch(err => {
         handleError(err);
       });
 

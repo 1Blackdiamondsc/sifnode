@@ -11,6 +11,8 @@ function isOriginallySifchainNativeToken(asset: Asset) {
 // to centralize the business logic
 const ETH_CONFIRMATIONS = 50;
 
+// check for existing pendingtx
+
 export default ({
   api,
   store,
@@ -78,6 +80,7 @@ export default ({
 
       return txStatus;
     },
+
     // TODO: Move this approval command to within peg and report status via store or some other means
     //       This has been done for convenience but we should not have to know in the view that
     //       approval is required before pegging as that is very much business domain knowledge
@@ -87,6 +90,7 @@ export default ({
         assetAmount
       );
     },
+
     async peg(assetAmount: AssetAmount) {
       const lockOrBurnFn = isOriginallySifchainNativeToken(assetAmount.asset)
         ? api.EthbridgeService.burnToSifchain
