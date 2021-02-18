@@ -43,10 +43,10 @@ export default function createEthbridgeService({
    * Gets a list of transactionHashes found as _from keys within the given events within a given blockRange from the current block
    * @param {*} address eth address to correlate transactions with
    * @param {*} contract web3 contract
-   * @param {*} eventList event name list of events (must have a _from key)
+   * @param {*} eventList event name list of events (must have an addresskey)
    * @param {*} blockRange number of blocks from the current block header to search
    */
-  async function getEventTxsInBlockrange(
+  async function getEventTxsInBlockrangeFromAddress(
     address: string,
     contract: Contract,
     eventList: string[],
@@ -56,16 +56,14 @@ export default function createEthbridgeService({
     const latest = await web3.eth.getBlockNumber();
     const fromBlock = Math.max(latest - blockRange, 0);
     const allEvents = await contract.getPastEvents("allEvents", {
+      // TODO: ask peggy team to index the _from field which would make this more efficient
+      // unfortunately because _from is not an indexed key we have to manually filter
+      // filter:{_from:address},
       fromBlock,
       toBlock: "latest",
     });
 
-    // unfortunately because _from is not an indexed event we have to manually filter
-    // TODO: ask peggy team to index the _from field
-    // tsx to return
     const txs = [];
-
-    // iterate over txs
     for (let event of allEvents) {
       const isEventWeCareAbout = eventList.includes(event.event);
 
@@ -255,18 +253,25 @@ export default function createEthbridgeService({
       return lockReceipt;
     },
 
-    //
-    async fetchUnconfirmedLockBurnTxs(address: string, blockRange: number) {
+    /**
+     * Get a list of transaction hashes associated with a particular address and a
+     * @param address contract address
+     * @param confirmationsRequired number of confirmations required
+     */
+    async fetchUnconfirmedLockBurnTxs(
+      address: string,
+      confirmationsRequired: number
+    ) {
       const web3 = await ensureWeb3();
       const bridgeBankContract = await getBridgeBankContract(
         web3,
         bridgebankContractAddress
       );
-      const txs = await getEventTxsInBlockrange(
+      return await getEventTxsInBlockrange(
         address,
         bridgeBankContract,
         ["LogBurn", "LogLock"],
-        blockRange
+        confirmationsRequired
       );
     },
 
