@@ -62,5 +62,6 @@ export function createPegTxEventEmitter(txHash?: string) {
       return instance;
     },
   };
+
   return instance;
 }

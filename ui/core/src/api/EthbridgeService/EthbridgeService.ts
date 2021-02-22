@@ -8,6 +8,8 @@ import { confirmTx } from "./utils/confirmTx";
 import { SifUnSignedClient } from "../utils/SifClient";
 import { parseTxFailure } from "./parseTxFailure";
 import { Contract } from "web3-eth-contract";
+import { EventEmitter2 } from "eventemitter2";
+import { PegTxEventEmitter } from "./types";
 // TODO: Do we break this service out to ethbridge and cosmos?
 
 export type EthbridgeServiceContext = {
@@ -31,6 +33,7 @@ export default function createEthbridgeService({
   sifUnsignedClient = new SifUnSignedClient(sifApiUrl, sifWsUrl),
 }: EthbridgeServiceContext) {
   // Pull this out to a util?
+  // How to handle context/dependency injection?
   let _web3: Web3 | null = null;
   async function ensureWeb3(): Promise<Web3> {
     if (!_web3) {
@@ -39,6 +42,40 @@ export default function createEthbridgeService({
     return _web3;
   }
 
+  /**
+   * Create an event listener to report status of a peg transaction.
+   * Usage:
+   * const tx = createPegTx(50)
+   * tx.setTxHash('0x52ds.....'); // set the hash to lookup and confirm on the blockchain
+   * @param confirmations number of confirmations before pegtx is considered confirmed
+   */
+  function createPegTx(confirmations: number) {
+    const emitter = createPegTxEventEmitter();
+    emitter.onTxHash(async ({ payload: txHash }) => {
+      const web3 = await ensureWeb3();
+      confirmTx({
+        web3,
+        txHash,
+        confirmations,
+        onSuccess() {
+          console.log(
+            "lockToSifchain: confirmTx SUCCESS",
+            txHash,
+            confirmations
+          );
+          emitter.emit({ type: "Complete", payload: null });
+        },
+        onCheckConfirmation(count) {
+          console.log(
+            "lockToSifchain: onCheckConfirmation PENDING",
+            confirmations
+          );
+          emitter.emit({ type: "EthConfCountChanged", payload: count });
+        },
+      });
+    });
+    return emitter;
+  }
   /**
    * Gets a list of transactionHashes found as _from keys within the given events within a given blockRange from the current block
    * @param {*} address eth address to correlate transactions with
@@ -76,6 +113,7 @@ export default function createEthbridgeService({
     }
     return txs;
   }
+
   return {
     async approveBridgeBankSpend(account: string, amount: AssetAmount) {
       // This will popup an approval request in metamask
@@ -147,11 +185,11 @@ export default function createEthbridgeService({
       assetAmount: AssetAmount,
       confirmations: number
     ) {
-      const emitter = createPegTxEventEmitter();
+      const pegTx = createPegTx(confirmations);
 
       function handleError(err: any) {
         console.log("lockToSifchain: handleError: ", err);
-        emitter.emit({
+        pegTx.emit({
           type: "Error",
           payload: parseTxFailure({ hash: "", log: err.message.toString() }),
         });
@@ -185,40 +223,17 @@ export default function createEthbridgeService({
           .send(sendArgs)
           .on("transactionHash", (hash: string) => {
             console.log("lockToSifchain: bridgeBankContract.lock TX", hash);
-            emitter.setTxHash(hash);
+            pegTx.setTxHash(hash);
           })
           .on("error", (err: any) => {
             console.log("lockToSifchain: bridgeBankContract.lock ERROR", err);
             handleError(err);
           });
-
-        emitter.onTxHash(({ payload: txHash }) => {
-          confirmTx({
-            web3,
-            txHash,
-            confirmations,
-            onSuccess() {
-              console.log(
-                "lockToSifchain: confirmTx SUCCESS",
-                txHash,
-                confirmations
-              );
-              emitter.emit({ type: "Complete", payload: null });
-            },
-            onCheckConfirmation(count) {
-              console.log(
-                "lockToSifchain: onCheckConfirmation PENDING",
-                confirmations
-              );
-              emitter.emit({ type: "EthConfCountChanged", payload: count });
-            },
-          });
-        });
       })().catch(err => {
         handleError(err);
       });
 
-      return emitter;
+      return pegTx;
     },
 
     async lockToEthereum(params: {
@@ -256,23 +271,28 @@ export default function createEthbridgeService({
     /**
      * Get a list of transaction hashes associated with a particular address and a
      * @param address contract address
-     * @param confirmationsRequired number of confirmations required
+     * @param confirmations number of confirmations required
      */
-    async fetchUnconfirmedLockBurnTxs(
-      address: string,
-      confirmationsRequired: number
-    ) {
+    async fetchUnconfirmedLockBurnTxs(address: string, confirmations: number) {
       const web3 = await ensureWeb3();
+
       const bridgeBankContract = await getBridgeBankContract(
         web3,
         bridgebankContractAddress
       );
-      return await getEventTxsInBlockrange(
+
+      const txs = await getEventTxsInBlockrangeFromAddress(
         address,
         bridgeBankContract,
         ["LogBurn", "LogLock"],
-        confirmationsRequired
+        confirmations
       );
+
+      return txs.map(txHash => {
+        const pegTx = createPegTx(confirmations);
+        pegTx.setTxHash(txHash);
+        return pegTx;
+      });
     },
 
     burnToSifchain(
@@ -281,11 +301,11 @@ export default function createEthbridgeService({
       confirmations: number,
       account?: string
     ) {
-      const emitter = createPegTxEventEmitter();
+      const pegTx = createPegTx(confirmations);
 
       function handleError(err: any) {
         console.log("burnToSifchain: handleError ERROR", err);
-        emitter.emit({
+        pegTx.emit({
           type: "Error",
           payload: parseTxFailure({ hash: "", log: err }),
         });
@@ -315,41 +335,17 @@ export default function createEthbridgeService({
           .send(sendArgs)
           .on("transactionHash", (hash: string) => {
             console.log("burnToSifchain: bridgeBankContract.burn TX", hash);
-            emitter.setTxHash(hash);
+            pegTx.setTxHash(hash);
           })
           .on("error", (err: any) => {
             console.log("burnToSifchain: bridgeBankContract.burn ERROR", err);
             handleError(err);
           });
-
-        emitter.onTxHash(({ payload: txHash }) => {
-          console.log("Waiting for confirmation... ");
-          confirmTx({
-            web3,
-            txHash,
-            confirmations,
-            onSuccess() {
-              console.log(
-                "burnToSifchain: commitTx SUCCESS",
-                txHash,
-                confirmations
-              );
-              emitter.emit({ type: "Complete", payload: null });
-            },
-            onCheckConfirmation(count) {
-              console.log(
-                "burnToSifchain: commitTx.checkConfirmation PENDING",
-                confirmations
-              );
-              emitter.emit({ type: "EthConfCountChanged", payload: count });
-            },
-          });
-        });
       })().catch(err => {
         handleError(err);
       });
 
-      return emitter;
+      return pegTx;
     },
   };
 }

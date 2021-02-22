@@ -2,6 +2,7 @@ import { ActionContext } from "..";
 import { Address, Asset, AssetAmount, TransactionStatus } from "../../entities";
 import notify from "../../api/utils/Notifications";
 import JSBI from "jsbi";
+import wallet from "../wallet";
 
 function isOriginallySifchainNativeToken(asset: Asset) {
   return ["erowan", "rowan"].includes(asset.symbol);
@@ -20,6 +21,22 @@ export default ({
   "SifService" | "EthbridgeService" | "EthereumService",
   "wallet"
 >) => {
+  // TODO: Extract subscriptions out to separate files
+  // Subscribe to
+  async function unconfirmedLockBurnTxSubscription() {
+    const pendingTxs = await api.EthbridgeService.fetchUnconfirmedLockBurnTxs(
+      store.wallet.eth.address,
+      ETH_CONFIRMATIONS
+    );
+
+    // create a tx in store and store details there to share with the view
+    for (const tx of pendingTxs) {
+      tx.onEthConfCountChanged(count => {});
+    }
+  }
+
+  unconfirmedLockBurnTxSubscription();
+
   const actions = {
     getSifTokens() {
       return api.SifService.getSupportedTokens();
