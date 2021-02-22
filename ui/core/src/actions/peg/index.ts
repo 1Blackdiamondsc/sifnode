@@ -3,6 +3,7 @@ import { Address, Asset, AssetAmount, TransactionStatus } from "../../entities";
 import notify from "../../api/utils/Notifications";
 import JSBI from "jsbi";
 import wallet from "../wallet";
+import { effect } from "@vue/reactivity";
 
 function isOriginallySifchainNativeToken(asset: Asset) {
   return ["erowan", "rowan"].includes(asset.symbol);
@@ -25,35 +26,44 @@ export default ({
     store.tx.eth[txStatus.hash] = txStatus;
   }
 
+  // XXX: So issue with garbage collecting listeners when address changes.....
+  // do we keep a cache of tx listeners on ethbridge service?
+  // HOW TO SOLVE???
+
   // TODO: Extract subscriptions out to separate files
   async function unconfirmedLockBurnTxSubscription() {
-    const pendingTxs = await api.EthbridgeService.fetchUnconfirmedLockBurnTxs(
-      store.wallet.eth.address,
-      ETH_CONFIRMATIONS
-    );
+    effect(async () => {
+      if (store.wallet.eth.address) {
+        console.log("unconfirmedLockBurnTxSubscription");
+        const pendingTxs = await api.EthbridgeService.fetchUnconfirmedLockBurnTxs(
+          store.wallet.eth.address,
+          ETH_CONFIRMATIONS
+        );
 
-    // create a tx in store and store details there to share with the view
-    // store for sharing tx changes
-    for (const tx of pendingTxs) {
-      // Pending txs should really all have hashes if we happen to come across one ignore it
-      // Should we throw an error?
-      if (!tx.hash) continue;
+        // create a tx in store and store details there to share with the view
+        // store for sharing tx changes
+        for (const tx of pendingTxs) {
+          // Pending txs should really all have hashes if we happen to come across one ignore it
+          // Should we throw an error?
+          if (!tx.hash) continue;
 
-      // If this is a pending tx it has been accepted
-      setTxStatus({
-        hash: tx.hash,
-        state: "accepted",
-      });
+          // If this is a pending tx it has been accepted
+          setTxStatus({
+            hash: tx.hash,
+            state: "accepted",
+          });
 
-      // Report back status
-      tx.onComplete(() => {
-        tx.hash && setTxStatus({ hash: tx.hash, state: "completed" });
-      });
+          // Report back status
+          tx.onComplete(() => {
+            tx.hash && setTxStatus({ hash: tx.hash, state: "completed" });
+          });
 
-      tx.onError(() => {
-        tx.hash && setTxStatus({ hash: tx.hash, state: "failed" });
-      });
-    }
+          tx.onError(() => {
+            tx.hash && setTxStatus({ hash: tx.hash, state: "failed" });
+          });
+        }
+      }
+    });
   }
 
   unconfirmedLockBurnTxSubscription();

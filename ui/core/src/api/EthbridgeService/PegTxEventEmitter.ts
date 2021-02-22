@@ -64,6 +64,10 @@ export function createPegTxEventEmitter(txHash?: string) {
       emitter.on("Complete", handler);
       return instance;
     },
+    removeListeners() {
+      emitter.removeAllListeners();
+      return instance;
+    },
     onError(handler: (e: TxEventError) => void) {
       emitter.on("Error", (e: TxEventError) => {
         handler(e);
