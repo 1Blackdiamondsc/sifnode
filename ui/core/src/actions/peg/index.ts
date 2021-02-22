@@ -12,15 +12,19 @@ function isOriginallySifchainNativeToken(asset: Asset) {
 // to centralize the business logic
 const ETH_CONFIRMATIONS = 50;
 
-// check for existing pendingtx
-
 export default ({
   api,
   store,
 }: ActionContext<
   "SifService" | "EthbridgeService" | "EthereumService",
-  "wallet"
+  "wallet" | "tx"
 >) => {
+  // set tx status on store
+  // TODO: Store should probably be a ViewModel or StoreService and this should be a method on it
+  function setTxStatus(txStatus: TransactionStatus) {
+    store.tx.eth[txStatus.hash] = txStatus;
+  }
+
   // TODO: Extract subscriptions out to separate files
   async function unconfirmedLockBurnTxSubscription() {
     const pendingTxs = await api.EthbridgeService.fetchUnconfirmedLockBurnTxs(
@@ -31,6 +35,24 @@ export default ({
     // create a tx in store and store details there to share with the view
     // store for sharing tx changes
     for (const tx of pendingTxs) {
+      // Pending txs should really all have hashes if we happen to come across one ignore it
+      // Should we throw an error?
+      if (!tx.hash) continue;
+
+      // If this is a pending tx it has been accepted
+      setTxStatus({
+        hash: tx.hash,
+        state: "accepted",
+      });
+
+      // Report back status
+      tx.onComplete(() => {
+        tx.hash && setTxStatus({ hash: tx.hash, state: "completed" });
+      });
+
+      tx.onError(() => {
+        tx.hash && setTxStatus({ hash: tx.hash, state: "failed" });
+      });
     }
   }
 

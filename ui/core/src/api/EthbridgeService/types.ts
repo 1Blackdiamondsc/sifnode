@@ -60,6 +60,7 @@ export type TxEventPrepopulated<T extends TxEvent = TxEvent> = Omit<
 };
 
 export type PegTxEventEmitter = {
+  hash?: string;
   setTxHash: (hash: string) => void;
   emit: <T extends TxEvent>(e: TxEventPrepopulated<T>) => void;
   onTxEvent: (handler: (e: TxEvent) => void) => PegTxEventEmitter;

@@ -8,8 +8,7 @@ import { confirmTx } from "./utils/confirmTx";
 import { SifUnSignedClient } from "../utils/SifClient";
 import { parseTxFailure } from "./parseTxFailure";
 import { Contract } from "web3-eth-contract";
-import { EventEmitter2 } from "eventemitter2";
-import { PegTxEventEmitter } from "./types";
+
 // TODO: Do we break this service out to ethbridge and cosmos?
 
 export type EthbridgeServiceContext = {
@@ -327,7 +326,7 @@ export default function createEthbridgeService({
         const sendArgs = {
           from: fromAddress,
           value: 0,
-          gas: 150000 // Note: This chose in lieu of burn(params).estimateGas({from})
+          gas: 150000, // Note: This chose in lieu of burn(params).estimateGas({from})
         };
 
         bridgeBankContract.methods
