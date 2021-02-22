@@ -22,7 +22,6 @@ export default ({
   "wallet"
 >) => {
   // TODO: Extract subscriptions out to separate files
-  // Subscribe to
   async function unconfirmedLockBurnTxSubscription() {
     const pendingTxs = await api.EthbridgeService.fetchUnconfirmedLockBurnTxs(
       store.wallet.eth.address,
@@ -30,8 +29,8 @@ export default ({
     );
 
     // create a tx in store and store details there to share with the view
+    // store for sharing tx changes
     for (const tx of pendingTxs) {
-      tx.onEthConfCountChanged(count => {});
     }
   }
 
