@@ -11,7 +11,7 @@ import {
   TxEventSifTxInitiated,
 } from "./types";
 import { EventEmitter2 } from "eventemitter2";
-
+export type PegTxEventEmitter = ReturnType<typeof createPegTxEventEmitter>;
 /**
  * Adds types around EventEmitter2
  * @param txHash transaction hash this emitter responds to

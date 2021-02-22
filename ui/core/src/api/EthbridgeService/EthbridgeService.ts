@@ -3,7 +3,10 @@ import Web3 from "web3";
 import { getBridgeBankContract } from "./bridgebankContract";
 import { getTokenContract } from "./tokenContract";
 import { AssetAmount, Token } from "../../entities";
-import { createPegTxEventEmitter } from "./PegTxEventEmitter";
+import {
+  createPegTxEventEmitter,
+  PegTxEventEmitter,
+} from "./PegTxEventEmitter";
 import { confirmTx } from "./utils/confirmTx";
 import { SifUnSignedClient } from "../utils/SifClient";
 import { parseTxFailure } from "./parseTxFailure";
@@ -48,7 +51,7 @@ export default function createEthbridgeService({
    * tx.setTxHash('0x52ds.....'); // set the hash to lookup and confirm on the blockchain
    * @param confirmations number of confirmations before pegtx is considered confirmed
    */
-  function createPegTx(confirmations: number) {
+  function createPegTx(confirmations: number): PegTxEventEmitter {
     const emitter = createPegTxEventEmitter();
     emitter.onTxHash(async ({ payload: txHash }) => {
       const web3 = await ensureWeb3();
@@ -272,7 +275,10 @@ export default function createEthbridgeService({
      * @param address contract address
      * @param confirmations number of confirmations required
      */
-    async fetchUnconfirmedLockBurnTxs(address: string, confirmations: number) {
+    async fetchUnconfirmedLockBurnTxs(
+      address: string,
+      confirmations: number
+    ): Promise<PegTxEventEmitter[]> {
       const web3 = await ensureWeb3();
 
       const bridgeBankContract = await getBridgeBankContract(

@@ -4,14 +4,22 @@ import notify from "../../api/utils/Notifications";
 import JSBI from "jsbi";
 import wallet from "../wallet";
 import { effect } from "@vue/reactivity";
+import { PegTxEventEmitter } from "../../api/EthbridgeService/PegTxEventEmitter";
 
 function isOriginallySifchainNativeToken(asset: Asset) {
   return ["erowan", "rowan"].includes(asset.symbol);
 }
+
 // listen for 50 confirmations
 // Eventually this should be set on ebrelayer
 // to centralize the business logic
 const ETH_CONFIRMATIONS = 50;
+
+// TODO: Store should probably be wrapped in a ViewModel or StoreService and this should be a method on it
+//       Eg. services.store.onAddressChange, services.store.setTxStatus
+
+// TODO: Subscriptions, Commands and Queries should all be their own concepts and each exist within their
+//       own files to manage complexity and avoid refactoring
 
 export default ({
   api,
@@ -20,53 +28,108 @@ export default ({
   "SifService" | "EthbridgeService" | "EthereumService",
   "wallet" | "tx"
 >) => {
-  // set tx status on store
-  // TODO: Store should probably be a ViewModel or StoreService and this should be a method on it
-  function setTxStatus(txStatus: TransactionStatus) {
-    store.tx.eth[txStatus.hash] = txStatus;
+  // Update a tx state in the store
+  function storeSetTxStatus(
+    hash: string | undefined,
+    state: TransactionStatus
+  ) {
+    if (!hash) return;
+    store.tx.eth[hash] = state;
   }
 
-  // XXX: So issue with garbage collecting listeners when address changes.....
-  // do we keep a cache of tx listeners on ethbridge service?
-  // HOW TO SOLVE???
+  /**
+   * Track changes to a tx emitter send notifications
+   * and update a key in the store
+   * @param tx with hash set
+   */
+  function subscribeToTx(tx: PegTxEventEmitter) {
+    function unsubscribe() {
+      tx.removeListeners();
+    }
 
-  // TODO: Extract subscriptions out to separate files
-  async function unconfirmedLockBurnTxSubscription() {
-    effect(async () => {
+    tx.onTxHash(({ txHash }) => {
+      storeSetTxStatus(txHash, {
+        hash: txHash,
+        memo: "Transaction Accepted",
+        state: "accepted",
+      });
+
+      notify({
+        type: "info",
+        message: "Pegged Transaction Pending",
+        detail: {
+          type: "etherscan",
+          message: txHash,
+        },
+        loader: true,
+      });
+    })
+      .onComplete(({ txHash }) => {
+        storeSetTxStatus(txHash, {
+          hash: txHash,
+          memo: "Transaction Complete",
+          state: "completed",
+        });
+
+        notify({
+          type: "success",
+          message: `Transfer ${txHash} has succeded.`,
+        });
+
+        // tx is complete so we can unsubscribe
+        unsubscribe();
+      })
+      .onError(err => {
+        storeSetTxStatus(tx.hash, {
+          hash: tx.hash!, // wont matter if tx.hash doesnt exist
+          memo: "Transaction Failed",
+          state: "failed",
+        });
+        notify({ type: "error", message: err.payload.memo! });
+      });
+
+    return unsubscribe;
+  }
+
+  // This is an example of a subscription and this should be moved to its own file to encapsulate complexity
+  function subscribeToUnconfirmedPegTxs(address: string) {
+    async function getSubscriptions() {
+      const pendingTxs: PegTxEventEmitter[] = await api.EthbridgeService.fetchUnconfirmedLockBurnTxs(
+        address,
+        ETH_CONFIRMATIONS
+      );
+      return pendingTxs.map(subscribeToTx);
+    }
+
+    // Need to keep subscriptions syncronous so using promise
+    const subscriptionsPromise = getSubscriptions();
+
+    // Return unsubscribe synchronously
+    return () => {
+      subscriptionsPromise.then(subscriptions =>
+        subscriptions.forEach(unsubscribe => unsubscribe())
+      );
+    };
+  }
+
+  // TODO: Move to a vue hook
+  // This is an example of a subscription invocation currently this is but this could later be moved to vue code
+  // React to address changes on the store and reset subscriptions when changed
+  let unsub: (() => void) | null;
+  let lastAddress: string;
+  effect(() => {
+    // Sometimes effect will run when value has not changed and
+    // we cannot use watch because of dependency polution (no vue in core)
+    if (lastAddress !== store.wallet.eth.address) {
+      // Unsubscribe if required
+      unsub && unsub();
+
       if (store.wallet.eth.address) {
-        console.log("unconfirmedLockBurnTxSubscription");
-        const pendingTxs = await api.EthbridgeService.fetchUnconfirmedLockBurnTxs(
-          store.wallet.eth.address,
-          ETH_CONFIRMATIONS
-        );
-
-        // create a tx in store and store details there to share with the view
-        // store for sharing tx changes
-        for (const tx of pendingTxs) {
-          // Pending txs should really all have hashes if we happen to come across one ignore it
-          // Should we throw an error?
-          if (!tx.hash) continue;
-
-          // If this is a pending tx it has been accepted
-          setTxStatus({
-            hash: tx.hash,
-            state: "accepted",
-          });
-
-          // Report back status
-          tx.onComplete(() => {
-            tx.hash && setTxStatus({ hash: tx.hash, state: "completed" });
-          });
-
-          tx.onError(() => {
-            tx.hash && setTxStatus({ hash: tx.hash, state: "failed" });
-          });
-        }
+        unsub = subscribeToUnconfirmedPegTxs(store.wallet.eth.address);
       }
-    });
-  }
-
-  unconfirmedLockBurnTxSubscription();
+    }
+    lastAddress = store.wallet.eth.address;
+  });
 
   const actions = {
     getSifTokens() {
@@ -143,36 +206,23 @@ export default ({
       const lockOrBurnFn = isOriginallySifchainNativeToken(assetAmount.asset)
         ? api.EthbridgeService.burnToSifchain
         : api.EthbridgeService.lockToSifchain;
-      return await new Promise<TransactionStatus>(done => {
-        lockOrBurnFn(store.wallet.sif.address, assetAmount, ETH_CONFIRMATIONS)
-          .onTxHash(hash => {
-            // TODO: Set tx status on store for pending txs to use elsewhere
-            notify({
-              type: "info",
-              message: "Pegged Transaction Pending",
-              detail: {
-                type: "etherscan",
-                message: hash.txHash,
-              },
-              loader: true,
-            });
 
-            done({
-              hash: hash.txHash,
-              memo: "Transaction Accepted",
-              state: "accepted",
-            });
-          })
-          .onError(err => {
-            notify({ type: "error", message: err.payload.memo! });
-            done(err.payload);
-          })
-          .onComplete(({ txHash }) => {
-            notify({
-              type: "success",
-              message: `Transfer ${txHash} has succeded.`,
-            });
+      return await new Promise<TransactionStatus>(done => {
+        const pegTx = lockOrBurnFn(
+          store.wallet.sif.address,
+          assetAmount,
+          ETH_CONFIRMATIONS
+        );
+
+        subscribeToTx(pegTx);
+
+        pegTx.onTxHash(hash => {
+          done({
+            hash: hash.txHash,
+            memo: "Transaction Accepted",
+            state: "accepted",
           });
+        });
       });
     },
   };
