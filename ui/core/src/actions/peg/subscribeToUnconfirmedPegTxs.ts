@@ -1,18 +1,15 @@
 import { ActionContext } from "..";
 import { PegTxEventEmitter } from "../../api/EthbridgeService/PegTxEventEmitter";
+import notify from "../../api/utils/Notifications";
 import { createSubscribeToTx } from "./utils/subscribeToTx";
-
-// Define context for this
-type PegContext = ActionContext<
-  "SifService" | "EthbridgeService" | "EthereumService",
-  "wallet" | "tx"
-> & { ethConfirmations: number };
 
 export const subscribeToUnconfirmedPegTxs = ({
   api,
   store,
   ethConfirmations,
-}: PegContext) => (address: string) => {
+}: ActionContext<"EthbridgeService", "tx"> & {
+  ethConfirmations: number;
+}) => (address: string) => {
   // Update a tx state in the store
   const subscribeToTx = createSubscribeToTx({ store });
 
@@ -21,6 +18,7 @@ export const subscribeToUnconfirmedPegTxs = ({
       address,
       ethConfirmations
     );
+
     return pendingTxs.map(subscribeToTx);
   }
 
@@ -29,6 +27,7 @@ export const subscribeToUnconfirmedPegTxs = ({
 
   // Return unsubscribe synchronously
   return () => {
+    console.log("unsubscribing...");
     subscriptionsPromise.then(subscriptions =>
       subscriptions.forEach(unsubscribe => unsubscribe())
     );

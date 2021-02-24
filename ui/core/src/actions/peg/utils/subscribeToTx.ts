@@ -23,7 +23,7 @@ export const createSubscribeToTx = ({ store }: WithStore<"tx">) => {
       tx.removeListeners();
     }
 
-    tx.onTxHash(({ txHash }) => {
+    function handleHash(txHash: string) {
       storeSetTxStatus(txHash, {
         hash: txHash,
         memo: "Transaction Accepted",
@@ -39,30 +39,40 @@ export const createSubscribeToTx = ({ store }: WithStore<"tx">) => {
         },
         loader: true,
       });
-    })
-      .onComplete(({ txHash }) => {
-        storeSetTxStatus(txHash, {
-          hash: txHash,
-          memo: "Transaction Complete",
-          state: "completed",
-        });
+    }
 
-        notify({
-          type: "success",
-          message: `Transfer ${txHash} has succeded.`,
-        });
+    if (tx.hash) {
+      handleHash(tx.hash);
+    }
 
-        // tx is complete so we can unsubscribe
-        unsubscribe();
-      })
-      .onError(err => {
-        storeSetTxStatus(tx.hash, {
-          hash: tx.hash!, // wont matter if tx.hash doesnt exist
-          memo: "Transaction Failed",
-          state: "failed",
-        });
-        notify({ type: "error", message: err.payload.memo! });
+    tx.onTxHash(({ txHash }) => {
+      handleHash(txHash);
+    });
+
+    tx.onComplete(({ txHash }) => {
+      storeSetTxStatus(txHash, {
+        hash: txHash,
+        memo: "Transaction Complete",
+        state: "completed",
       });
+
+      notify({
+        type: "success",
+        message: `Transfer ${txHash} has succeded.`,
+      });
+
+      // tx is complete so we can unsubscribe
+      unsubscribe();
+    });
+
+    tx.onError(err => {
+      storeSetTxStatus(tx.hash, {
+        hash: tx.hash!, // wont matter if tx.hash doesnt exist
+        memo: "Transaction Failed",
+        state: "failed",
+      });
+      notify({ type: "error", message: err.payload.memo! });
+    });
 
     return unsubscribe;
   };

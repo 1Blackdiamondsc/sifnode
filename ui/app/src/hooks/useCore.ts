@@ -1,4 +1,3 @@
-import { watch, watchEffect } from "@vue/runtime-core";
 import {
   createStore,
   createApi,
@@ -56,15 +55,6 @@ Object.defineProperty(window, "store", {
 
     return storeSafe;
   },
-});
-
-// initialize subscriptions
-watchEffect((onInvalidateEffect) => {
-  // TODO: subscriptions will be accessed from subscriptions.peg.unconfirmedPegTxs()
-  const unsubscribe = actions.peg.subscribeToUnconfirmedPegTxs(
-    store.wallet.eth.address
-  );
-  onInvalidateEffect(unsubscribe);
 });
 
 export function useCore() {

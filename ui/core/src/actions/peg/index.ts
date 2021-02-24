@@ -39,6 +39,8 @@ export default ({
     // unpeg: unpeg(ctx),
     // peg: peg(ctx),
 
+    // LEGACY BELOW
+
     getSifTokens() {
       return api.SifService.getSupportedTokens();
     },

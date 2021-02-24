@@ -18,6 +18,8 @@ export type PegTxEventEmitter = ReturnType<typeof createPegTxEventEmitter>;
  */
 export function createPegTxEventEmitter(txHash?: string) {
   let _txHash = txHash;
+  let _hasHashHandler = false;
+
   const emitter = new EventEmitter2();
 
   const instance = {
